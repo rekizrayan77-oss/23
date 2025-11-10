@@ -2,174 +2,122 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<title>Fusée Spatiale Ultimate</title>
+<title>Fusée Spatiale Deluxe</title>
 <style>
-body{margin:0;padding:0;overflow:hidden;font-family:Arial,sans-serif;background:linear-gradient(180deg,#000428,#004e92);color:white;}
-#gameContainer{position:relative;width:100%;height:100vh;display:flex;justify-content:center;align-items:center;}
+body {
+  margin:0; padding:0; height:100vh; overflow:hidden;
+  font-family:Arial,sans-serif;
+  background:linear-gradient(180deg,#000428,#004e92);
+  color:white;
+}
+#gameContainer{position:relative;width:100%;height:100%;display:flex;justify-content:center;align-items:center;}
 canvas{background:radial-gradient(circle,#001a33,#000);border:3px solid #00d4ff;box-shadow:0 0 30px #00d4ff80;}
-#screen{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;background:#000000dd;z-index:40;}
-button{padding:12px 28px;margin:8px;font-size:18px;border:none;border-radius:50px;cursor:pointer;background:linear-gradient(135deg,#667eea,#764ba2);color:white;font-weight:bold;}
-input{padding:12px 16px;font-size:16px;border:2px solid #00d4ff;border-radius:20px;background:#ffffff22;color:white;text-align:center;}
-#scoreDisplay{position:absolute;top:16px;left:16px;font-size:18px;display:flex;gap:12px;align-items:center;z-index:30;}
-#pauseBtn{position:absolute;top:16px;right:16px;display:none;z-index:30;}
-.podium{padding:15px;margin-top:15px;background:#ffffff22;border-radius:15px;color:#001;}
-.podium ol{padding-left:1rem;}
-.confettiMsg{font-size:48px;margin-top:12px;animation:pop 900ms ease-out;}
-@keyframes pop{0%{transform:scale(.6);opacity:0}60%{transform:scale(1.08);opacity:1}100%{transform:scale(1)}}
-.smallText{font-size:14px;opacity:.9;}
+#screen{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;background:#000000dd;z-index:10;}
+button{padding:12px 35px;margin:8px;font-size:20px;border:none;border-radius:50px;cursor:pointer;background:linear-gradient(135deg,#667eea,#764ba2);color:white;font-weight:bold;}
+#scoreDisplay{position:absolute;top:20px;left:20px;font-size:24px;}
+#pauseBtn{position:absolute;top:20px;right:20px;display:none;}
+.bonusBarContainer{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);display:none;gap:10px;}
+.bar{width:120px;height:15px;border:2px solid #fff;border-radius:10px;overflow:hidden;}
+.barInner{height:100%;width:100%;transition:width 0.1s linear;}
 </style>
 </head>
 <body>
 <div id="gameContainer">
-  <div id="scoreDisplay" style="display:none;">
-    <div>J: <span id="score">0</span></div>
-    <div id="iaScores" class="smallText"></div>
-  </div>
+  <div id="scoreDisplay" style="display:none;">Score: <span id="score">0</span></div>
   <button id="pauseBtn" style="display:none;">⏸ Pause</button>
   <div id="screen"><h1>🚀 Fusée Spatiale 🚀</h1><button id="startBtn">Démarrer</button></div>
   <canvas id="game" width="600" height="800"></canvas>
+  <div class="bonusBarContainer" id="bonusBars">
+    <div class="bar" id="shieldBar"><div class="barInner" style="background:#00caff;width:0%;"></div></div>
+    <div class="bar" id="laserBar"><div class="barInner" style="background:#ff3333;width:0%;"></div></div>
+  </div>
 </div>
-
 <script>
-// ===== VARIABLES =====
-const canvas=document.getElementById("game");
-const ctx=canvas.getContext("2d");
-const screen=document.getElementById("screen");
-const startBtn=document.getElementById("startBtn");
-const pauseBtn=document.getElementById("pauseBtn");
-const scoreSpan=document.getElementById("score");
-const iaScoresDiv=document.getElementById("iaScores");
+let screen=document.getElementById("screen");
+let canvas=document.getElementById("game");
+let ctx=canvas.getContext("2d");
+let scoreDisplay=document.getElementById("scoreDisplay");
+let pauseBtn=document.getElementById("pauseBtn");
+let scoreSpan=document.getElementById("score");
+let bonusBars=document.getElementById("bonusBars");
+let shieldBar=document.querySelector('#shieldBar .barInner');
+let laserBar=document.querySelector('#laserBar .barInner');
 
 let pseudo="", score=0, mode="solo", difficulty="easy";
-let gameRunning=false, gamePaused=false, celebrationActive=false;
-let keys={}, particles=[], bullets=[], asteroids=[], bonuses=[], iaPlayers=[];
-let asteroidTimer=0, asteroidInterval=60, nextBonusTrigger=100, BONUS_INTERVAL=110;
-let laserCooldown=0, GAME_WIN_SCORE=5000;
-let player={x:280,y:740,w:40,h:60,shield:false,laser:false,bonusTimers:{}};
+let gameRunning=false, gamePaused=false;
+let keys={}, lasers=[], asteroids=[], bonuses=[], particleList=[], iaPlayers=[];
+let asteroidSpawnTimer=0, asteroidSpawnInterval=60;
+let laserCooldown=0, nextBonusTrigger=100;
+let player={x:280,y:740,w:40,h:60,shield:false,laser:false,shieldEnd:0,laserEnd:0};
 
-// ===== EVENTS =====
-document.addEventListener("keydown",e=>keys[e.code]=true);
-document.addEventListener("keyup",e=>keys[e.code]=false);
-startBtn.onclick=menuPseudo;
-pauseBtn.onclick=togglePause;
-
-// ===== PARTICULES =====
-function spawnParticles(x,y,color,size,count,spread=3,life=30){
-  for(let i=0;i<count;i++){
-    particles.push({x,y,dx:(Math.random()*2-1)*spread,dy:(Math.random()*2-1)*spread,size:size*(0.6+Math.random()*0.8),life:life*(0.7+Math.random()*0.8),color});
+function drawRocket(p,isPlayer=true){
+  // Fusée triangulaire inspirée de l’image fournie
+  let grad=ctx.createLinearGradient(p.x,p.y,p.x,p.y+p.h);
+  grad.addColorStop(0,"#00bfff");
+  grad.addColorStop(1,"#0077ff");
+  ctx.fillStyle=grad;
+  ctx.beginPath();
+  ctx.moveTo(p.x+p.w/2,p.y); // nez
+  ctx.lineTo(p.x+p.w,p.y+p.h*0.7);
+  ctx.lineTo(p.x+p.w*0.75,p.y+p.h);
+  ctx.lineTo(p.x+p.w*0.25,p.y+p.h);
+  ctx.lineTo(p.x,p.y+p.h*0.7);
+  ctx.closePath();
+  ctx.fill();
+  // cockpit
+  ctx.fillStyle="#88d7ff";
+  ctx.beginPath();
+  ctx.arc(p.x+p.w/2,p.y+p.h*0.4,p.w*0.15,0,Math.PI*2);
+  ctx.fill();
+  // flamme moteur
+  ctx.fillStyle="#ffcc33";
+  ctx.beginPath();
+  ctx.moveTo(p.x+p.w*0.25,p.y+p.h);
+  ctx.lineTo(p.x+p.w*0.5,p.y+p.h+15+Math.random()*5);
+  ctx.lineTo(p.x+p.w*0.75,p.y+p.h);
+  ctx.closePath();
+  ctx.fill();
+  // bouclier
+  if(p.shield){
+    let r=35+Math.sin(Date.now()/120)*3;
+    ctx.strokeStyle="#00caff";
+    ctx.lineWidth=3;
+    ctx.beginPath();
+    ctx.arc(p.x+p.w/2,p.y+p.h/2,r,0,Math.PI*2);
+    ctx.stroke();
   }
 }
-function drawParticles(){
-  for(let i=particles.length-1;i>=0;i--){
-    const p=particles[i];
-    p.x+=p.dx; p.y+=p.dy; p.life--;
-    ctx.globalAlpha=Math.max(0,p.life/40);
-    ctx.fillStyle=p.color;
-    ctx.beginPath(); ctx.arc(p.x,p.y,p.size,0,Math.PI*2); ctx.fill();
-    ctx.globalAlpha=1;
-    if(p.life<=0) particles.splice(i,1);
-  }
+
+function updateBonusBars(){
+  let now=Date.now();
+  let active=false;
+  if(player.shield){
+    let remain=Math.max(0,player.shieldEnd-now);
+    shieldBar.style.width=(remain/15000*100)+"%";
+    active=true;
+  } else shieldBar.style.width="0%";
+  if(player.laser){
+    let remain=Math.max(0,player.laserEnd-now);
+    laserBar.style.width=(remain/15000*100)+"%";
+    active=true;
+  } else laserBar.style.width="0%";
+  bonusBars.style.display = active ? 'flex' : 'none';
 }
 
-// ===== MENUS =====
-function menuPseudo(){
-  screen.style.display='flex';
-  screen.innerHTML=`<h1>🚀 Fusée Spatiale 🚀</h1>
-  <p>Entrez votre pseudo:</p>
-  <input id="pseudoInput" maxlength="15"/>
-  <button id="validatePseudo">Valider</button>`;
-  document.getElementById("validatePseudo").onclick=()=>{pseudo=document.getElementById("pseudoInput").value||"Joueur";menuMain();};
-}
-function menuMain(){
-  screen.style.display='flex';
-  screen.innerHTML=`<h1>🚀 Fusée Spatiale 🚀</h1>
-  <p>Bonjour ${pseudo}!</p>
-  <button id="soloBtn">Solo</button><button id="multiBtn">Multijoueur</button>`;
-  document.getElementById("soloBtn").onclick=startSolo;
-  document.getElementById("multiBtn").onclick=menuMulti;
-}
-function menuMulti(){
-  screen.style.display='flex';
-  screen.innerHTML=`<h1>🚀 Mode Multi</h1><p>Choisir difficulté IA</p>
-  <button id="easyBtn">Facile</button><button id="mediumBtn">Moyen</button><button id="hardBtn">Difficile</button>`;
-  document.getElementById("easyBtn").onclick=()=>startMulti("easy");
-  document.getElementById("mediumBtn").onclick=()=>startMulti("medium");
-  document.getElementById("hardBtn").onclick=()=>startMulti("hard");
+function useBonus(p,type){
+  if(type==="shield"){p.shield=true;p.shieldEnd=Date.now()+15000;}
+  if(type==="laser"){p.laser=true;p.laserEnd=Date.now()+15000;}
 }
 
-// ===== INIT =====
-function startSolo(){mode="solo";initGame();}
-function startMulti(diff){mode="multi";difficulty=diff;initGame();}
-function initGame(){
-  screen.style.display='none';
-  score=0; scoreSpan.textContent=score;
-  asteroids=[]; bonuses=[]; particles=[]; bullets=[]; iaPlayers=[];
-  player.x=280; player.y=740; player.shield=false; player.laser=false; player.bonusTimers={};
-  gameRunning=true; gamePaused=false;
-  asteroidInterval=(mode==="multi"&&difficulty==="hard"?40:60);
-  nextBonusTrigger=100;
-  celebrationActive=false;
-  if(mode==="multi") initIA();
-  scoreSpan.textContent=score; pauseBtn.style.display='block';
-  requestAnimationFrame(update);
-}
-
-// ===== IA =====
-function initIA(){
-  const colors=["#ff6b6b","#ffd93d","#6bcf7f","#a29bfe"];
-  const names=["Astro","Nova","Cosmos","Stellar"];
-  iaPlayers=[];
-  for(let i=0;i<4;i++){
-    iaPlayers.push({x:80+i*120,y:740,w:40,h:60,color:colors[i],name:names[i],alive:true,dx:0,dy:0,speed:(difficulty==="hard"?5:4),shield:false,laser:false,bonusTimers:{},score:0,fireCooldown:0});
-  }
-  updateIAScore();
-}
-
-// ===== GAME LOOP =====
 function update(){
   if(!gameRunning||gamePaused)return;
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-  
-  // étoiles
-  ctx.fillStyle="white";
-  for(let i=0;i<40;i++){
-    let x=(i*137)%600, y=((i*137+score*2)%800);
-    ctx.fillRect(x,y,2,2);
-  }
-
-  movePlayer();
-  moveIA();
-  bullets.forEach(b=>{b.y-=10; drawBullet(b); checkBulletHit(b);});
-  spawnAsteroids();
-  drawAsteroids();
-  spawnBonuses();
-  drawBonuses();
+  ctx.clearRect(0,0,600,800);
   drawRocket(player,true);
-  drawIA();
-  drawParticles();
-
-  scoreSpan.textContent=score;
-  if(score>=GAME_WIN_SCORE && !celebrationActive){celebrationActive=true; showCelebration(); return;}
+  updateBonusBars();
   requestAnimationFrame(update);
 }
 
-// ===== PAUSE =====
-function togglePause(){gamePaused=!gamePaused;if(!gamePaused) requestAnimationFrame(update);}
-
-// ===== UTILITÉS =====
-function showCelebration(){
-  gameRunning=false;
-  screen.style.display='flex';
-  screen.innerHTML=`<h1 class="confettiMsg">🎉 Félicitations ! 🎉</h1><button onclick="menuMain()">Menu</button>`;
-}
-function updateIAScore(){
-  iaScoresDiv.innerHTML=iaPlayers.map(ai=>`${ai.name}:${ai.score}`).join(' | ');
-}
-
-// ===== NOTE =====
-// Toutes les fonctions détaillées (drawRocket, drawIA, drawBullets, fireLaser, explodeAsteroid, movePlayer, spawnAsteroids, drawAsteroids, spawnBonuses, drawBonuses, useBonus, collision, bonus duration bars, clignotements) doivent être codées ici pour que le jeu soit 100% jouable.
-
-menuPseudo();
+document.getElementById("startBtn").onclick=()=>{screen.style.display='none';gameRunning=true;update();};
 </script>
 </body>
 </html>
